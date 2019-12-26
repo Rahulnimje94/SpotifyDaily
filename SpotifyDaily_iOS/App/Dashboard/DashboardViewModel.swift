@@ -84,6 +84,10 @@ class DashboardViewModel: DashboardViewModelType, DashboardViewModelInput, Dashb
     private var trackCollections: Observable<[Track]>!
     private var recentlyPlayedCollections: Observable<[RecentlyPlayedTrack]>!
     
+    private var artistsTimeRange: BehaviorRelay<String>!
+    private var tracksTimeRange: BehaviorRelay<String>!
+    private var refresh: BehaviorSubject<Void>!
+    
     // MARK: - Initialization
     init(sessionService: SessionService, dataManager: DataManager, safariService: SafariService) {
         self.sessionService = sessionService
@@ -94,11 +98,25 @@ class DashboardViewModel: DashboardViewModelType, DashboardViewModelInput, Dashb
         
         guard let tracksCollectionState = self.dataManager.get(key: DataKeys.topTracksCollectionState, type: TopTracksViewControllerState.self) else { return }
         
-        artistCollections = self.sessionService.getTopArtists(timeRange: artistsCollectionState.artistsTimeRange, limit: 2)
+        self.artistsTimeRange = BehaviorRelay<String>(value: artistsCollectionState.artistsTimeRange)
+        self.tracksTimeRange = BehaviorRelay<String>(value: tracksCollectionState.tracksTimeRange)
+        self.refresh = BehaviorSubject<Void>(value: Void())
         
-        trackCollections = self.sessionService.getTopTracks(timeRange: tracksCollectionState.tracksTimeRange, limit: 2)
+        artistCollections = artistsTimeRange.flatMap { self.sessionService.getTopArtists(timeRange: $0, limit: 2) }
+        trackCollections = tracksTimeRange.flatMap { self.sessionService.getTopTracks(timeRange: $0, limit: 2) }
+        recentlyPlayedCollections = refresh.flatMap { self.sessionService.getRecentlyPlayedTracks(limit: 3) }
         
-        recentlyPlayedCollections = self.sessionService.getRecentlyPlayedTracks(limit: 3)
+        childDismissed.bind(onNext: { [unowned self] in
+            guard let artistsCollectionState = self.dataManager.get(key: DataKeys.topArtistsCollectionState, type: TopArtistsViewControllerState.self) else { return }
+            
+            guard let tracksCollectionState = self.dataManager.get(key: DataKeys.topTracksCollectionState, type: TopTracksViewControllerState.self) else { return }
+            
+            self.artistsTimeRange.accept(artistsCollectionState.artistsTimeRange)
+            self.tracksTimeRange.accept(tracksCollectionState.tracksTimeRange)
+            self.refresh.onNext(Void())
+            }
+        )
+        .disposed(by: disposeBag)
     }
     
     deinit {
